@@ -41,3 +41,5 @@ streamlit run app.py
 
 ## Notes
 - To prevent database corruption, avoid deleting `./chroma_db` manually while Streamlit is processing documents. Ensure all background python tasks are killed before forceful removal.
+- **Voice Module:** The application uses **Suno Bark** to generate expressive TTS. The first time you ask a question, Bark will download several gigabytes of PyTorch weights locally to your `~/.cache` directory.
+- **GPU Acceleration:** The `voice_module.py` script is optimized to run Bark on CUDA (specifically targeting RTX 4060 GPUs) using the `SUNO_USE_SMALL_MODELS` hardware flag to reduce latency.

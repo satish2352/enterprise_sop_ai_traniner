@@ -121,19 +121,19 @@ def ingest_documents(data_dir: str = DATA_DIR):
             if text.strip():
                 documents.append(Document(text=text, metadata={"file_name": file, "page": page_num}))
                 
-            # Image extraction is currently disabled to focus on text-only summaries
-            # for img_index, img in enumerate(page.get_images(full=True)):
-            #     xref = img[0]
-            #     base_image = doc.extract_image(xref)
-            #     image_bytes = base_image["image"]
-            #     ext = base_image["ext"]
-            #     
-            #     img_name = f"{file}_p{page_num}_i{img_index}.{ext}"
-            #     img_path = os.path.join(data_dir, img_name)
-            #     with open(img_path, "wb") as f:
-            #         f.write(image_bytes)
-            #         
-            #     documents.append(ImageDocument(image_path=img_path, metadata={"file_name": file, "page": page_num, "file_path": img_path}))
+            # Image extraction: Extract raw image bytes and save to data dir
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                ext = base_image["ext"]
+                
+                img_name = f"{file}_p{page_num}_i{img_index}.{ext}"
+                img_path = os.path.join(data_dir, img_name)
+                with open(img_path, "wb") as f:
+                    f.write(image_bytes)
+                    
+                documents.append(ImageDocument(image_path=img_path, metadata={"file_name": file, "page": page_num, "file_path": img_path}))
 
     print(f"Found {len(documents)} nodes (text chunks and images). Indexing...")
 
@@ -236,36 +236,54 @@ def run_reflective_query(query_str: str, filters=None, top_k=5):
     )
     
     # 2. Retrieve
-    retriever = index.as_retriever(similarity_top_k=top_k, filters=filters)
+    # LlamaIndex Multimodal retrieval setup
+    retriever = index.as_retriever(similarity_top_k=top_k, image_similarity_top_k=2, filters=filters)
     nodes = retriever.retrieve(query_str)
     
     # Debugging: Check if nodes are retrieved
-    print(f"DEBUG: Retrieved {len(nodes)} nodes for query '{query_str}' with filters {filters}")
+    print(f"DEBUG: Retrieved {len(nodes)} total semantic nodes for query '{query_str}' with filters {filters}")
     
     # 3. Evaluate (Self-Reflect)
-    # We use the same LLM for evaluation but with a stricter prompt
+    # We use the text LLM for fast text relevance checking
     relevant_nodes = evaluate_relevance(query_str, nodes, llm)
     
+    # Ensure any retrieved Image nodes are always passed to synthesis, as our text LLM can't evaluate them
+    # and they were retrieved via dedicated image embedding similarity anyway.
+    for n in nodes:
+        if hasattr(n.node, "image_path") and n not in relevant_nodes:
+            relevant_nodes.append(n)
+            
     # 4. Synthesize
     if not relevant_nodes:
         return "I'm sorry, but I couldn't find any relevant information in the selected documents to answer your question accurately."
         
-    # Standard synthesis LLM
-    synthesis_llm = Ollama(
-        model=TEXT_LLM_MODEL, 
+    # Multimodal Synthesis LLM
+    synthesis_llm = OllamaMultiModal(
+        model=VISION_LLM_MODEL, 
         temperature=0.7, 
         request_timeout=600.0,
         additional_kwargs={"num_ctx": 8192}
     )
     
-    response_synthesizer = get_response_synthesizer(
-        llm=synthesis_llm,
-        text_qa_template=QA_PROMPT,
-        streaming=True
-    )
+    # Manually format context string based on valid text chunks
+    context_str = "\\n\\n".join([n.node.get_content() for n in relevant_nodes if not hasattr(n.node, "image_path")])
+    image_docs = [n.node for n in relevant_nodes if hasattr(n.node, "image_path")]
     
-    response = response_synthesizer.synthesize(query_str, nodes=relevant_nodes)
-    return response
+    prompt = QA_PROMPT.format(context_str=context_str, query_str=query_str)
+    
+    # Stream response directly through multimodal model
+    try:
+        response_stream = synthesis_llm.stream_complete(prompt, image_documents=image_docs)
+    except Exception as e:
+        print(f"DEBUG Error in stream_complete: {e}")
+        raise e
+    
+    class CustomStreamingResponse:
+        def __init__(self, stream, nodes):
+            self.response_gen = (r.delta for r in stream)
+            self.source_nodes = nodes
+            
+    return CustomStreamingResponse(response_stream, relevant_nodes)
 
 # ─── Execution ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

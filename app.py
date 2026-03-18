@@ -76,10 +76,16 @@ if selected_file:
     for msg in current_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if "images" in msg and msg["images"]:
+                for img_path in msg["images"]:
+                    if os.path.exists(img_path):
+                        st.image(img_path, caption="Context Image", use_container_width=True)
             if "sources" in msg and msg["sources"]:
                 with st.expander("View Sources"):
                     for src in msg["sources"]:
                         st.write(f"- {src}")
+            if "audio_path" in msg and msg["audio_path"] and os.path.exists(msg["audio_path"]):
+                st.audio(msg["audio_path"], format="audio/wav")
 
     # Ask questions
     if prompt := st.chat_input(f"Ask a question regarding {selected_file}..."):
@@ -120,27 +126,58 @@ if selected_file:
                              message_placeholder.markdown(full_response + "▌")
                          message_placeholder.markdown(full_response)
                          
-                     # Extract sources
+                     # Extract sources and images
                      retrieved_text_sources = []
+                     retrieved_images = []
                      if not isinstance(response_stream, str):
                          if hasattr(response_stream, "source_nodes") and response_stream.source_nodes:
                              for snode in response_stream.source_nodes:
-                                 if hasattr(snode, "node") and hasattr(snode.node, "metadata"):
-                                     fname = snode.node.metadata.get("file_name", "Unknown")
-                                     pnum = snode.node.metadata.get("page", "?")
-                                     source_str = f"{fname} (page {pnum})"
-                                     if source_str not in retrieved_text_sources:
-                                         retrieved_text_sources.append(source_str)
+                                 if hasattr(snode, "node"):
+                                     if hasattr(snode.node, "image_path") and hasattr(snode.node, "metadata"):
+                                         img_path = snode.node.metadata.get("file_path", None)
+                                         if not img_path: img_path = snode.node.image_path
+                                         if img_path and img_path not in retrieved_images:
+                                             retrieved_images.append(img_path)
+                                             
+                                     if hasattr(snode.node, "metadata"):
+                                         fname = snode.node.metadata.get("file_name", "Unknown")
+                                         pnum = snode.node.metadata.get("page", "?")
+                                         source_str = f"{fname} (page {pnum})"
+                                         if source_str not in retrieved_text_sources:
+                                             retrieved_text_sources.append(source_str)
+                                             
+                     # Display Images immediately
+                     if retrieved_images:
+                         for img_path in retrieved_images:
+                             if os.path.exists(img_path):
+                                 st.image(img_path, caption="Context Image", use_container_width=True)
                      
                      if retrieved_text_sources:
                          with st.expander("View Sources"):
                              for src in retrieved_text_sources:
                                  st.write(f"- {src}")
                                  
+                     # Generate voice for the response
+                     final_audio_path = None
+                     try:
+                         from voice_module import generate_voice
+                         with st.spinner("Generating expressive audio..."):
+                             audio_filename = f"response_{len(st.session_state[chat_key])}.wav"
+                             final_audio_path = generate_voice(full_response, audio_filename)
+                             
+                             if final_audio_path and os.path.exists(final_audio_path):
+                                 st.audio(final_audio_path, format="audio/wav")
+                     except ImportError:
+                         st.warning("Voice module not active. Please ensure Bark is installed.")
+                     except Exception as e:
+                         st.error(f"Voice generation failed: {e}")
+                                 
                      st.session_state[chat_key].append({
                          "role": "assistant", 
                          "content": full_response,
-                         "sources": retrieved_text_sources
+                         "sources": retrieved_text_sources,
+                         "images": retrieved_images,
+                         "audio_path": final_audio_path
                      })
                          
                  except Exception as e:
