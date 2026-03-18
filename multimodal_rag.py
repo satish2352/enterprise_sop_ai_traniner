@@ -20,12 +20,12 @@ QA_PROMPT_TMPL = (
     "---------------------\n"
     "{context_str}\n"
     "---------------------\n"
-    "Given the context information and not prior knowledge, "
-    "answer the query. \n"
-    "IMPORTANT: \n"
-    "1. Do NOT include any citations or mention file names/page numbers in your response text. \n"
-    "2. If multiple files are provided in the context, treat them as independent sources unless they explicitly refer to each other. \n"
-    "3. If different files provide unrelated or conflicting information, state this clearly in your response. \n"
+    "Given the context information and your internal vision capabilities, "
+    "answer the query strictly relying on the provided text and images.\n"
+    "CRITICAL INSTRUCTIONS:\n"
+    "1. Do NOT include any citations or mention file names/page numbers in your response text.\n"
+    "2. If the user asks for 'components', 'parts', or 'items' (e.g., of a printer or remote), you MUST provide a highly detailed, comprehensive bulleted list encompassing EVERY single component found in the text and images. DO NOT summarize.\n"
+    "3. Under absolutely no circumstances should you output numerical image indices like '[0]', '0', or '[img-0]'. Provide ONLY the final coherent textual answer.\n"
     "Query: {query_str}\n"
     "Answer: "
 )
@@ -45,10 +45,10 @@ DATA_DIR = "./data"
 
 # ─── 1. Setup Global Settings ──────────────────────────────────────────────────
 # Set the global embedding model for text
-Settings.embed_model = OllamaEmbedding(model_name=EMBEDDING_MODEL, additional_kwargs={"num_ctx": 8192})
+Settings.embed_model = OllamaEmbedding(model_name=EMBEDDING_MODEL, additional_kwargs={"num_ctx": 4096})
 Settings.context_window = 8192 # Set global context window limit
 # Set the global text LLM (overrides OpenAI default)
-Settings.llm = Ollama(model=TEXT_LLM_MODEL, request_timeout=600.0, additional_kwargs={"num_ctx": 8192})
+Settings.llm = Ollama(model=TEXT_LLM_MODEL, request_timeout=600.0, additional_kwargs={"num_ctx": 4096, "keep_alive": 0})
 
 # ─── 2. Setup Vector Store (Chroma) ───────────────────────────────────────────
 # We use ChromaDB to store text and images in distinct collections
@@ -169,9 +169,9 @@ def setup_query_engine(filters=None, top_k=3):
     # Note: LLaVA is a 7B parameter multimodal model. Ensure Ollama is running.
     ollama_multi_modal_llm = OllamaMultiModal(
         model=VISION_LLM_MODEL,
-        temperature=0.7,
+        temperature=0.1,
         request_timeout=600.0,
-        additional_kwargs={"num_ctx": 8192}
+        additional_kwargs={"num_ctx": 4096, "keep_alive": 0}
     )
     
     # Assemble the query engine
@@ -232,7 +232,7 @@ def run_reflective_query(query_str: str, filters=None, top_k=5):
         model=TEXT_LLM_MODEL, 
         temperature=0.1, # Lower temperature for evaluation
         request_timeout=300.0,
-        additional_kwargs={"num_ctx": 8192}
+        additional_kwargs={"num_ctx": 4096, "keep_alive": 0}
     )
     
     # 2. Retrieve
@@ -260,9 +260,9 @@ def run_reflective_query(query_str: str, filters=None, top_k=5):
     # Multimodal Synthesis LLM
     synthesis_llm = OllamaMultiModal(
         model=VISION_LLM_MODEL, 
-        temperature=0.7, 
+        temperature=0.1, 
         request_timeout=600.0,
-        additional_kwargs={"num_ctx": 8192}
+        additional_kwargs={"num_ctx": 4096, "keep_alive": 0}
     )
     
     # Manually format context string based on valid text chunks

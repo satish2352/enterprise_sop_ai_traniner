@@ -79,13 +79,13 @@ if selected_file:
             if "images" in msg and msg["images"]:
                 for img_path in msg["images"]:
                     if os.path.exists(img_path):
-                        st.image(img_path, caption="Context Image", use_container_width=True)
+                        st.image(img_path, caption="📸 Context Image (Hover and click the arrows in the top right to view Fullscreen)", width=500)
             if "sources" in msg and msg["sources"]:
                 with st.expander("View Sources"):
                     for src in msg["sources"]:
                         st.write(f"- {src}")
             if "audio_path" in msg and msg["audio_path"] and os.path.exists(msg["audio_path"]):
-                st.audio(msg["audio_path"], format="audio/wav")
+                st.audio(msg["audio_path"], format="audio/mpeg")
 
     # Ask questions
     if prompt := st.chat_input(f"Ask a question regarding {selected_file}..."):
@@ -104,7 +104,7 @@ if selected_file:
                          filters=[ExactMatchFilter(key="file_name", value=selected_file)]
                      )
                      
-                     dynamic_top_k = 5 # Can keep this fixed since we are only querying one file
+                     dynamic_top_k = 10 # Retrieving 10 chunks per file ensures much higher accuracy by catching everything relevant.
                      
                      with st.status("Searching document...", expanded=False) as status:
                          response_stream = run_reflective_query(
@@ -150,7 +150,7 @@ if selected_file:
                      if retrieved_images:
                          for img_path in retrieved_images:
                              if os.path.exists(img_path):
-                                 st.image(img_path, caption="Context Image", use_container_width=True)
+                                 st.image(img_path, caption="📸 Context Image (Hover and click the arrows in the top right to view Fullscreen)", width=500)
                      
                      if retrieved_text_sources:
                          with st.expander("View Sources"):
@@ -166,7 +166,7 @@ if selected_file:
                              final_audio_path = generate_voice(full_response, audio_filename)
                              
                              if final_audio_path and os.path.exists(final_audio_path):
-                                 st.audio(final_audio_path, format="audio/wav")
+                                 st.audio(final_audio_path, format="audio/mpeg")
                      except ImportError:
                          st.warning("Voice module not active. Please ensure Bark is installed.")
                      except Exception as e:
