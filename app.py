@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from multimodal_rag import run_reflective_query, setup_query_engine, DATA_DIR, CHROMA_PATH
 from llama_index.core.vector_stores import ExactMatchFilter, MetadataFilters
+from tts_service import synthesize_speech
 
 st.set_page_config(page_title="SAP SOP AI Trainer", page_icon="🎓", layout="wide")
 
@@ -28,6 +29,16 @@ st.markdown("""
 # --- Session State Management ---
 if "query_engine" not in st.session_state:
     st.session_state.query_engine = None
+if "tts_audio" not in st.session_state:
+    st.session_state.tts_audio = None
+if "tts_error" not in st.session_state:
+    st.session_state.tts_error = None
+if "tts_text" not in st.session_state:
+    st.session_state.tts_text = None
+if "tts_voice_id" not in st.session_state:
+    st.session_state.tts_voice_id = "Joanna"
+if "tts_language_code" not in st.session_state:
+    st.session_state.tts_language_code = "en-US"
 
 def initialize_engine():
     if os.path.exists(CHROMA_PATH):
@@ -67,19 +78,37 @@ with st.sidebar:
                  ]
                  st.rerun()
 
+    st.markdown("---")
+    st.subheader("Voice Settings")
+    st.session_state.tts_voice_id = st.selectbox(
+        "Voice",
+        options=["Joanna", "Matthew"],
+        index=0 if st.session_state.tts_voice_id == "Joanna" else 1,
+        help="Choose the voice for text-to-speech.",
+    )
+    st.session_state.tts_language_code = st.selectbox(
+        "Language",
+        options=["en-US"],
+        index=0,
+        help="Language code for the TTS voice.",
+    )
+
 # --- Main Chat Interface ---
 if selected_file:
     chat_key = f"messages_{selected_file}"
     current_messages = st.session_state[chat_key]
     
     # Display the current file's chat history
-    for msg in current_messages:
+    for idx, msg in enumerate(current_messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if "sources" in msg and msg["sources"]:
                 with st.expander("View Sources"):
                     for src in msg["sources"]:
                         st.write(f"- {src}")
+            if msg.get("role") == "assistant":
+                if st.button("🔊 Speak", key=f"speak_{chat_key}_{idx}"):
+                    st.session_state.tts_text = msg["content"]
 
     # Ask questions
     if prompt := st.chat_input(f"Ask a question regarding {selected_file}..."):
@@ -145,6 +174,26 @@ if selected_file:
                          
                  except Exception as e:
                      st.error(f"An error occurred: {e}")
+
+    # Handle TTS playback for selected message
+    if st.session_state.tts_text:
+        audio_bytes, error = synthesize_speech(
+            st.session_state.tts_text,
+            voice_id=st.session_state.tts_voice_id,
+            language_code=st.session_state.tts_language_code,
+        )
+        if error:
+            st.session_state.tts_audio = None
+            st.session_state.tts_error = error
+        else:
+            st.session_state.tts_audio = audio_bytes
+            st.session_state.tts_error = None
+        st.session_state.tts_text = None
+
+    if st.session_state.tts_error:
+        st.error(st.session_state.tts_error)
+    if st.session_state.tts_audio:
+        st.audio(st.session_state.tts_audio, format="audio/mp3")
 else:
     # If no file is selected (or none are available)
     if not all_files:
